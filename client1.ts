@@ -15,7 +15,7 @@ socket.on("connect", () => {
     socket.emit("send_message", {
       chatId: "room1",
       content: "Hello from Client1 👋",
-      sender: "Client1",
+      senderId: "b2cfce8f-22fc-4e25-ad0c-1d2c5c258322",
     });
   }, 2000);
 });

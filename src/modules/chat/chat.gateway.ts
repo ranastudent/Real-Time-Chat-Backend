@@ -20,17 +20,30 @@ export class ChatGateway {
   constructor(private chatService: ChatService) {}
 
   @SubscribeMessage('join_chat')
-  handleJoinChat(@MessageBody() data: { chatId: string }, @ConnectedSocket() client: Socket) {
-    client.join(`chat:${data.chatId}`);
-    this.server.to(`chat:${data.chatId}`).emit('system', { msg: `User joined chat ${data.chatId}` });
+  async handleJoinChat(
+    @MessageBody() data: { chatId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const room = `chat:${data.chatId}`;
+    client.join(room);
+
+    // Fetch history from DB
+    const history = await this.chatService.getChatHistory(data.chatId);
+    client.emit('chat_history', history);
+
+    // Notify others
+    this.server.to(room).emit('system', { msg: `User joined chat ${data.chatId}` });
   }
 
   @SubscribeMessage('send_message')
-  async handleSendMessage(@MessageBody() data: { chatId: string; content: string; sender: string }) {
+  async handleSendMessage(
+    @MessageBody() data: { chatId: string; content: string; senderId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
     // Save to DB
-    await this.chatService.saveMessage(data.chatId, data.sender, data.content);
+    const newMsg = await this.chatService.saveMessage(data.chatId, data.senderId, data.content);
 
     // Broadcast
-    this.server.to(`chat:${data.chatId}`).emit('message', data);
+    this.server.to(`chat:${data.chatId}`).emit('message', newMsg);
   }
 }

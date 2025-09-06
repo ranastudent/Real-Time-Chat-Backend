@@ -10,6 +10,7 @@ This document tracks which requirements are already implemented and which are pe
 - [x] **ChatGateway (WebSocket) running** and accepting client connections
 - [x] **Multiple clients can join the same chat room**
 - [x] **Client connection verified** (client1 & client2 both receive system messages)
+- [x] **Implement **chat persistence** (Prisma model for `Message`, save + fetch history). 
 
 ---
 
@@ -38,11 +39,10 @@ This document tracks which requirements are already implemented and which are pe
 ---
 
 ## 📌 Next Steps
-
-1. Implement **chat persistence** (Prisma model for `Message`, save + fetch history).  
-2. Add **room management** (create/join multiple rooms).  
-3. Extend with **OTP + device enforcement**.  
-4. Polish with **error handling + system events**.  
+ 
+1. Add **room management** (create/join multiple rooms).  
+2. Extend with **OTP + device enforcement**.  
+3. Polish with **error handling + system events**.  
 
 ---
 

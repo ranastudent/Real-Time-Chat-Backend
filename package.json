@@ -14,7 +14,8 @@
     "client1": "ts-node client1.ts",
     "client2": "ts-node client2.ts",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
