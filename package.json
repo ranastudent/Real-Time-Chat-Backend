@@ -1,0 +1,48 @@
+{
+  "name": "real-time-chat-backend",
+  "version": "1.0.0",
+  "description": "Backend for Real Time Chat application",
+  "author": "",
+  "license": "ISC",
+  "main": "dist/main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "prisma:generate": "prisma generate",
+    "client1": "ts-node client1.ts",
+    "client2": "ts-node client2.ts",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "@nestjs/platform-socket.io": "^11.1.6",
+    "@nestjs/websockets": "^11.1.6",
+    "@prisma/client": "^6.15.0",
+    "bcrypt": "^6.0.0",
+    "dotenv": "^17.2.1",
+    "ioredis": "^5.7.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "socket.io": "^4.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.41.0",
+    "@typescript-eslint/parser": "^8.41.0",
+    "eslint": "^9.34.0",
+    "prettier": "^3.6.2",
+    "prisma": "^6.15.0",
+    "socket.io-client": "^4.8.1",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.2"
+  }
+}
