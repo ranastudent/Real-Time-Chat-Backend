@@ -21,9 +21,12 @@ export class ChatGateway {
 
   @SubscribeMessage('join_chat')
   async handleJoinChat(
-    @MessageBody() data: { chatId: string },
+    @MessageBody() data: { chatId: string; userId: string },
     @ConnectedSocket() client: Socket,
   ) {
+    // Ensure user is registered as a participant
+    await this.chatService.joinRoom(data.chatId, data.userId);
+
     const room = `chat:${data.chatId}`;
     client.join(room);
 
@@ -31,8 +34,10 @@ export class ChatGateway {
     const history = await this.chatService.getChatHistory(data.chatId);
     client.emit('chat_history', history);
 
-    // Notify others
-    this.server.to(room).emit('system', { msg: `User joined chat ${data.chatId}` });
+    // Notify others in the room
+    this.server.to(room).emit('system', {
+      msg: `User ${data.userId} joined chat ${data.chatId}`,
+    });
   }
 
   @SubscribeMessage('send_message')
@@ -41,9 +46,13 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
   ) {
     // Save to DB
-    const newMsg = await this.chatService.saveMessage(data.chatId, data.senderId, data.content);
+    const newMsg = await this.chatService.saveMessage(
+      data.chatId,
+      data.senderId,
+      data.content,
+    );
 
-    // Broadcast
+    // Broadcast to all in the room
     this.server.to(`chat:${data.chatId}`).emit('message', newMsg);
   }
 }

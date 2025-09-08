@@ -29,7 +29,7 @@ model Device {
 model Chat {
   id          String             @id @default(uuid())
   isGroup     Boolean            @default(false)
-  title       String?
+  title       String
   createdBy   String
   participants ChatParticipant[]
   messages    Message[]
