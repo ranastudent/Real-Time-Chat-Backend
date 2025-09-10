@@ -72,12 +72,31 @@ export class ChatController {
   }
 
   // Get all chats (public list)
-  @Get()
-  async getAllChats() {
-    const chats = await this.chatService.getAllChats();
+
+  // Get all chats for a user (WhatsApp-style chat list)
+  @Get("user/:userId")
+  async getChatsForUser(
+    @Param("userId") userId: string,
+    @Query("page") page: string = "1",
+    @Query("limit") limit: string = "10",
+    @Query("search") search?: string
+  ) {
+    const result = await this.chatService.getChatsForUser(
+      userId,
+      parseInt(page, 10),
+      parseInt(limit, 10),
+      search
+    );
+
     return {
-      message: "All chats fetched successfully",
-      data: chats,
+      message: `Chats for user ${userId} fetched successfully`,
+      data: result, // 👈 return only formatted chat list
+      pagination: {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
     };
   }
 

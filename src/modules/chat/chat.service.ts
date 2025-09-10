@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/Prisma.service";
+import { Prisma } from "@prisma/client";
 
 @Injectable()
 export class ChatService {
@@ -128,35 +129,108 @@ export class ChatService {
     });
   }
 
+ async getChatsForUser(
+  userId: string,
+  page: number = 1,
+  limit: number = 10,
+  search?: string
+) {
+  const skip = (page - 1) * limit;
 
-async getAllChats() {
-  // Fetch all chats with participants and last message
+  // Search filter
+  const searchCondition: Prisma.ChatWhereInput = search
+    ? {
+        OR: [
+          { title: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          {
+            participants: {
+              some: {
+                user: {
+                  name: { contains: search, mode: Prisma.QueryMode.insensitive },
+                },
+              },
+            },
+          },
+        ],
+      }
+    : {};
+
+  // Fetch chats for this user
   const chats = await this.prisma.chat.findMany({
-    orderBy: { createdAt: "desc" },
+    where: {
+      participants: { some: { userId } },
+      ...searchCondition,
+    },
     include: {
       participants: {
         include: { user: { select: { id: true, name: true, phone: true } } },
       },
       messages: {
-        take: 1, // Only the latest message
+        take: 1,
         orderBy: { createdAt: "desc" },
-        include: {
-          sender: { select: { id: true, name: true } },
-        },
+        include: { sender: { select: { id: true, name: true } } },
       },
+    },
+    skip,
+    take: limit,
+  });
+
+  const total = await this.prisma.chat.count({
+    where: {
+      participants: { some: { userId } },
+      ...searchCondition,
     },
   });
 
-  // Format chats with lastMessage
-  return chats.map(chat => ({
-    id: chat.id,
-    title: chat.title,
-    isGroup: chat.isGroup,
-    createdBy: chat.createdBy,
-    createdAt: chat.createdAt,
-    participants: chat.participants.map(p => p.user),
-    lastMessage: chat.messages[0] || null, // If no messages, set null
-  }));
+  // Format response
+  const formattedChats = chats.map((chat) => {
+    // Get other participants (exclude current user)
+    const otherParticipants = chat.participants
+      .map((p) => p.user)
+      .filter((u) => u.id !== userId);
+
+    // Determine chat name
+    const chatName = chat.isGroup
+      ? chat.title
+      : otherParticipants[0]?.name || "Unknown";
+
+    return {
+      id: chat.id,
+      title: chat.title,
+      chatName, // WhatsApp-style display name
+      isGroup: chat.isGroup,
+      createdBy: chat.createdBy,
+      createdAt: chat.createdAt,
+      participants: otherParticipants,
+      lastMessage: chat.messages[0]
+        ? {
+            id: chat.messages[0].id,
+            content: chat.messages[0].content,
+            createdAt: chat.messages[0].createdAt,
+            sender: chat.messages[0].sender,
+          }
+        : null,
+    };
+  });
+
+  // Order by last message time
+  const sortedChats = formattedChats.sort((a, b) => {
+    const aTime = a.lastMessage
+      ? new Date(a.lastMessage.createdAt).getTime()
+      : new Date(a.createdAt).getTime();
+    const bTime = b.lastMessage
+      ? new Date(b.lastMessage.createdAt).getTime()
+      : new Date(b.createdAt).getTime();
+    return bTime - aTime;
+  });
+
+  return {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    chats: sortedChats,
+  };
 }
 
 }
