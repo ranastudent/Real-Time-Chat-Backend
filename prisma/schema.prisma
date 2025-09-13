@@ -8,17 +8,18 @@ generator client {
 }
 
 model User {
-  id        String    @id @default(uuid())
-  phone     String    @unique
+  id        String            @id @default(uuid())
+  phone     String            @unique
   name      String?
-  email     String?   @unique
-  password  String    @default("TEMP_PASSWORD")
+  email     String?           @unique
+  password  String            @default("TEMP_PASSWORD")
   devices   Device[]
   chats     ChatParticipant[]
   messages  Message[]
-  createdAt DateTime  @default(now())
-}
+  createdAt DateTime          @default(now())
 
+  MediaDownload MediaDownload[]
+}
 
 model Device {
   id        String   @id @default(uuid())
@@ -66,7 +67,19 @@ model Message {
   chatId      String
   sender      User     @relation(fields: [senderId], references: [id])
   senderId    String
-  content     String
+  content     String?
   contentType String   @default("text")
   createdAt   DateTime @default(now())
+  mediaUrl    String? // link to uploaded file
+  mediaType   String? // image | video | pdf | etc.
+  downloads   MediaDownload[]
+}
+
+model MediaDownload {
+  id          String   @id @default(uuid())
+  message     Message  @relation(fields: [messageId], references: [id])
+  messageId   String
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  downloadedAt DateTime @default(now())
 }
