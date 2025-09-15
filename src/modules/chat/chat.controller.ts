@@ -74,24 +74,27 @@ export class ChatController {
   }
 
   // --- GET CHAT HISTORY FOR A SPECIFIC CHAT (INCLUDING TYPING USERS) ---
-  @Get(":chatId/history")
-  async getChatHistory(
-    @Req() req: { user: JwtUser },
-    @Param("chatId") chatId: string,
-  ) {
-    const history = await this.chatService.getChatHistory(chatId);
+  
+// --- GET CHAT HISTORY FOR A SPECIFIC CHAT (INCLUDING TYPING USERS) ---
+@Get(":chatId/history")
+async getChatHistory(
+  @Req() req: { user: JwtUser },
+  @Param("chatId") chatId: string,
+) {
+  const history = await this.chatService.getChatHistory(chatId);
 
-    // Get current typing users from ChatService
-    const typingUsers = this.chatService.getTypingUsers(chatId).filter(
-      (u) => u !== req.user.userId, // exclude requesting user
-    );
+  // ✅ Await Redis-based typing users
+  const typingUsers = (await this.chatService.getTypingUsers(chatId)).filter(
+    (u) => u !== req.user.userId, // exclude requesting user
+  );
 
-    return {
-      message: "Chat history fetched successfully",
-      data: history,
-      typingUsers,
-    };
-  }
+  return {
+    message: "Chat history fetched successfully",
+    data: history,
+    typingUsers,
+  };
+}
+
 
   // --- SEND TEXT MESSAGE ---
   @Post(":chatId/messages")

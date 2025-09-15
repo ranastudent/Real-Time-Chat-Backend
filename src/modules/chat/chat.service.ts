@@ -1,41 +1,87 @@
+// src/chat/chat.service.ts
 import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
-} from "@nestjs/common";
-import { PrismaService } from "../../prisma/Prisma.service";
-import { Prisma } from "@prisma/client";
-import { JwtUser } from "../../types/jwt-user";
-import { Response } from "express";
-import { join } from "path";
-import { existsSync, createReadStream } from "fs";
+} from '@nestjs/common';
+import { PrismaService } from '../../prisma/Prisma.service';
+import { Prisma } from '@prisma/client';
+import { JwtUser } from '../../types/jwt-user';
+import { Response } from 'express';
+import { join } from 'path';
+import { existsSync, createReadStream } from 'fs';
+import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
 export class ChatService {
-  constructor(private prisma: PrismaService) {}
+  private redis;
 
-  // --- TRACK TYPING USERS (IN MEMORY) ---
-  // key = chatId, value = Set of userIds currently typing
-  private typingUsersMap: Map<string, Set<string>> = new Map();
-
-  setUserTyping(chatId: string, userId: string) {
-    if (!this.typingUsersMap.has(chatId)) {
-      this.typingUsersMap.set(chatId, new Set());
-    }
-    this.typingUsersMap.get(chatId)!.add(userId);
+  constructor(
+    private prisma: PrismaService,
+    private redisService: RedisService,
+  ) {
+    this.redis = this.redisService.getClient();
   }
 
-  removeUserTyping(chatId: string, userId: string) {
-    if (this.typingUsersMap.has(chatId)) {
-      this.typingUsersMap.get(chatId)!.delete(userId);
-      if (this.typingUsersMap.get(chatId)!.size === 0) {
-        this.typingUsersMap.delete(chatId);
+  // --- REDIS: PER-SOCKET TYPING STATE ---
+  async setUserTyping(
+    chatId: string,
+    userId: string,
+    socketId: string,
+    typing: boolean,
+  ) {
+    const key = `typing:${chatId}:${userId}:${socketId}`;
+    if (typing) {
+      // Set or refresh TTL
+      await this.redis.set(key, 'true', 'EX', 5);
+    } else {
+      await this.redis.del(key);
+    }
+  }
+
+  async refreshTypingTTL(chatId: string, userId: string, socketId: string) {
+    const key = `typing:${chatId}:${userId}:${socketId}`;
+    const exists = await this.redis.exists(key);
+    if (exists) {
+      await this.redis.expire(key, 5);
+    }
+  }
+
+  async clearUserTypingAll(userId: string, socketId: string) {
+    const keys = await this.redis.keys(`typing:*:${userId}:${socketId}`);
+    if (keys.length) await this.redis.del(...keys);
+  }
+
+  // Optimized: only return users still actively typing
+  async getTypingUsers(chatId: string): Promise<string[]> {
+    const keys = await this.redis.keys(`typing:${chatId}:*`);
+    const users = new Set<string>();
+
+    for (const key of keys) {
+      const exists = await this.redis.exists(key);
+      if (exists) {
+        const parts = key.split(':');
+        if (parts.length === 4) users.add(parts[2]);
       }
     }
+
+    return [...users];
   }
 
-  getTypingUsers(chatId: string) {
-    return Array.from(this.typingUsersMap.get(chatId) || []);
+  // Get all chats a user is currently typing in (for disconnect cleanup)
+  async getChatsUserTypingIn(userId: string): Promise<string[]> {
+    const keys = await this.redis.keys(`typing:*:${userId}:*`);
+    const chats = new Set<string>();
+
+    for (const key of keys) {
+      const exists = await this.redis.exists(key);
+      if (exists) {
+        const parts = key.split(':');
+        if (parts.length === 4) chats.add(parts[1]); // chatId
+      }
+    }
+
+    return [...chats];
   }
 
   // --- DEVICE CHECK ---
@@ -46,7 +92,7 @@ export class ChatService {
 
     if (!device) {
       throw new UnauthorizedException(
-        "Invalid session. Logged in on another device."
+        'Invalid session. Logged in on another device.',
       );
     }
   }
@@ -58,7 +104,7 @@ export class ChatService {
     const creator = await this.prisma.user.findUnique({
       where: { id: user.userId },
     });
-    if (!creator) throw new NotFoundException(`User not found`);
+    if (!creator) throw new NotFoundException('User not found');
 
     const chat = await this.prisma.chat.create({
       data: { title, createdBy: user.userId, isGroup },
@@ -90,12 +136,12 @@ export class ChatService {
     chatId: string,
     user: JwtUser,
     content?: string | null,
-    media?: { mediaUrl: string; mediaType: string }
+    media?: { mediaUrl: string; mediaType: string },
   ) {
     await this.validateDevice(user);
 
     const chat = await this.prisma.chat.findUnique({ where: { id: chatId } });
-    if (!chat) throw new NotFoundException("Chat not found");
+    if (!chat) throw new NotFoundException('Chat not found');
 
     return this.prisma.message.create({
       data: {
@@ -104,14 +150,19 @@ export class ChatService {
         content: content ?? null,
         mediaUrl: media?.mediaUrl ?? null,
         mediaType: media?.mediaType ?? null,
-        contentType: media ? "media" : "text",
+        contentType: media ? 'media' : 'text',
       },
       include: { sender: true },
     });
   }
 
   // --- GET CHATS FOR USER ---
-  async getChatsForUser(user: JwtUser, page = 1, limit = 10, search?: string) {
+  async getChatsForUser(
+    user: JwtUser,
+    page = 1,
+    limit = 10,
+    search?: string,
+  ) {
     await this.validateDevice(user);
 
     const skip = (page - 1) * limit;
@@ -124,10 +175,7 @@ export class ChatService {
               participants: {
                 some: {
                   user: {
-                    name: {
-                      contains: search,
-                      mode: Prisma.QueryMode.insensitive,
-                    },
+                    name: { contains: search, mode: Prisma.QueryMode.insensitive },
                   },
                 },
               },
@@ -147,7 +195,7 @@ export class ChatService {
         },
         messages: {
           take: 1,
-          orderBy: { createdAt: "desc" },
+          orderBy: { createdAt: 'desc' },
           include: { sender: { select: { id: true, name: true } } },
         },
       },
@@ -166,9 +214,10 @@ export class ChatService {
       const otherParticipants = chat.participants
         .map((p) => p.user)
         .filter((u) => u.id !== user.userId);
+
       const chatName = chat.isGroup
         ? chat.title
-        : otherParticipants[0]?.name || "Unknown";
+        : otherParticipants[0]?.name || 'Unknown';
 
       const lastMessage = chat.messages[0]
         ? {
@@ -215,7 +264,7 @@ export class ChatService {
     chatId: string,
     messageId: string,
     user: JwtUser,
-    res: Response
+    res: Response,
   ) {
     await this.validateDevice(user);
 
@@ -224,27 +273,24 @@ export class ChatService {
     });
 
     if (!message || !message.mediaUrl)
-      throw new NotFoundException("Media not found");
+      throw new NotFoundException('Media not found');
 
     await this.prisma.mediaDownload.create({
       data: { messageId, userId: user.userId },
     });
 
-    const fileName = message.mediaUrl.split("/").pop()!;
-    const filePath = join(process.cwd(), "uploads", fileName);
+    const fileName = message.mediaUrl.split('/').pop()!;
+    const filePath = join(process.cwd(), 'uploads', fileName);
 
     if (!existsSync(filePath))
-      throw new NotFoundException("File not found on server");
+      throw new NotFoundException('File not found on server');
 
-    const ext = fileName.split(".").pop()?.toLowerCase() || "";
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
-    if (["jpg", "jpeg", "png", "gif", "mp4", "webm"].includes(ext)) {
-      res.setHeader("Content-Disposition", "inline");
+    if (['jpg', 'jpeg', 'png', 'gif', 'mp4', 'webm'].includes(ext)) {
+      res.setHeader('Content-Disposition', 'inline');
     } else {
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${fileName}"`
-      );
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     }
 
     return createReadStream(filePath).pipe(res);
@@ -252,11 +298,10 @@ export class ChatService {
 
   // --- GET CHAT HISTORY ---
   async getChatHistory(chatId: string) {
-    const messages = await this.prisma.message.findMany({
+    return this.prisma.message.findMany({
       where: { chatId },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: 'asc' },
       include: { sender: { select: { id: true, name: true } } },
     });
-    return messages;
   }
 }

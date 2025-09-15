@@ -28,20 +28,31 @@ export class ChatGateway implements OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
-  // Track all sockets per user
   private userSockets: Map<string, Set<string>> = new Map();
 
   constructor(private chatService: ChatService) {}
 
-  handleDisconnect(client: Socket) {
+  // --- DISCONNECT ---
+  async handleDisconnect(client: Socket) {
     for (const [userId, sockets] of this.userSockets.entries()) {
       if (sockets.has(client.id)) {
         sockets.delete(client.id);
         if (sockets.size === 0) this.userSockets.delete(userId);
+
+        // Clear typing state for this socket
+        await this.chatService.clearUserTypingAll(userId, client.id);
+
+        // Notify all chats user was typing in
+        const activeChats = await this.chatService.getChatsUserTypingIn(userId);
+        activeChats.forEach((chatId) => {
+          const room = `chat:${chatId}`;
+          this.server.to(room).emit('user_typing', { userId, typing: false });
+        });
       }
     }
   }
 
+  // --- JOIN CHAT ---
   @SubscribeMessage('join_chat')
   async handleJoinChat(
     @MessageBody() data: SocketJoinData,
@@ -49,11 +60,9 @@ export class ChatGateway implements OnGatewayDisconnect {
   ) {
     const { chatId, user } = data;
 
-    // Track user device
     if (!this.userSockets.has(user.userId)) this.userSockets.set(user.userId, new Set());
     this.userSockets.get(user.userId)!.add(client.id);
 
-    // Join DB and Socket room
     await this.chatService.joinRoom(chatId, user);
     const room = `chat:${chatId}`;
     client.join(room);
@@ -62,10 +71,18 @@ export class ChatGateway implements OnGatewayDisconnect {
     const history = await this.chatService.getChatHistory(chatId);
     client.emit('chat_history', history);
 
-    // Notify others in room
+    // Active typing users (optimized)
+    const typingUsers = await this.chatService.getTypingUsers(chatId);
+    typingUsers.forEach((u) => {
+      if (u !== user.userId) {
+        client.emit('user_typing', { userId: u, typing: true });
+      }
+    });
+
     client.to(room).emit('system', { msg: `User ${user.userId} joined chat ${chatId}` });
   }
 
+  // --- SEND MESSAGE ---
   @SubscribeMessage('send_message')
   async handleSendMessage(
     @MessageBody() data: SocketMessageData,
@@ -74,17 +91,19 @@ export class ChatGateway implements OnGatewayDisconnect {
     const { chatId, content, user } = data;
     const newMsg = await this.chatService.saveMessage(chatId, user, content);
 
-    // Broadcast to room (all devices)
     const room = `chat:${chatId}`;
     this.server.to(room).emit('message', newMsg);
 
-    // Remove typing if user was typing
-    this.chatService.removeUserTyping(chatId, user.userId);
+    // Remove typing state for this socket
+    await this.chatService.setUserTyping(chatId, user.userId, client.id, false);
+
+    // Notify others
     this.server.to(room)
       .except([...this.userSockets.get(user.userId) ?? []])
       .emit('user_typing', { userId: user.userId, typing: false });
   }
 
+  // --- LEAVE CHAT ---
   @SubscribeMessage('leave_chat')
   async handleLeaveChat(
     @MessageBody() data: { chatId: string; userId: string },
@@ -92,6 +111,8 @@ export class ChatGateway implements OnGatewayDisconnect {
   ) {
     const room = `chat:${data.chatId}`;
     client.leave(room);
+    await this.chatService.clearUserTypingAll(data.userId, client.id);
+
     this.server.to(room).emit('system', { msg: `User ${data.userId} left chat ${data.chatId}` });
   }
 
@@ -99,41 +120,40 @@ export class ChatGateway implements OnGatewayDisconnect {
   @SubscribeMessage('typing_start')
   async handleTypingStart(
     @MessageBody() data: { chatId: string; user: JwtUser },
+    @ConnectedSocket() client: Socket,
   ) {
     const { chatId, user } = data;
     const room = `chat:${chatId}`;
 
-    // Mark user as typing in service
-    this.chatService.setUserTyping(chatId, user.userId);
+    await this.chatService.setUserTyping(chatId, user.userId, client.id, true);
 
-    // Notify all other devices (except current)
     this.server.to(room)
       .except([...this.userSockets.get(user.userId) ?? []])
       .emit('user_typing', { userId: user.userId, typing: true });
-
-    // Auto-stop typing after 5s
-    setTimeout(() => {
-      this.chatService.removeUserTyping(chatId, user.userId);
-      this.server.to(room)
-        .except([...this.userSockets.get(user.userId) ?? []])
-        .emit('user_typing', { userId: user.userId, typing: false });
-    }, 5000);
   }
 
-  // --- TYPING STOP (EXPLICIT) ---
+  // --- TYPING STOP ---
   @SubscribeMessage('typing_stop')
   async handleTypingStop(
     @MessageBody() data: { chatId: string; user: JwtUser },
+    @ConnectedSocket() client: Socket,
   ) {
     const { chatId, user } = data;
     const room = `chat:${chatId}`;
 
-    // Remove typing in service
-    this.chatService.removeUserTyping(chatId, user.userId);
+    await this.chatService.setUserTyping(chatId, user.userId, client.id, false);
 
-    // Notify other devices
     this.server.to(room)
       .except([...this.userSockets.get(user.userId) ?? []])
       .emit('user_typing', { userId: user.userId, typing: false });
+  }
+
+  // --- TYPING PING ---
+  @SubscribeMessage('typing_ping')
+  async handleTypingPing(
+    @MessageBody() data: { chatId: string; user: JwtUser },
+    @ConnectedSocket() client: Socket,
+  ) {
+    await this.chatService.refreshTypingTTL(data.chatId, data.user.userId, client.id);
   }
 }

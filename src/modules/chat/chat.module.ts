@@ -3,10 +3,12 @@ import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { PrismaService } from '../../prisma/Prisma.service';
 import { ChatController } from './chat.controller';
+import { RedisModule } from '../../redis/redis.module'; // ✅ fixed path
 
 @Module({
+  imports: [RedisModule],
   providers: [ChatGateway, ChatService, PrismaService],
-  exports: [ChatService], // export if needed in other modules
+  exports: [ChatService],
   controllers: [ChatController],
 })
 export class ChatModule {}
