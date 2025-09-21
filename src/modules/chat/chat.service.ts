@@ -14,6 +14,7 @@ import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
 export class ChatService {
+  [x: string]: any;
   private redis;
 
   constructor(
