@@ -11,6 +11,10 @@ import {
   UseInterceptors,
   Res,
   NotFoundException,
+  Delete,
+  Patch,
+
+  
 } from "@nestjs/common";
 import { ChatService } from "./chat.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -150,5 +154,41 @@ async getChatHistory(
     @Res() res: Response,
   ) {
     return this.chatService.downloadMedia(chatId, messageId, req.user, res);
+  }
+
+  @Post(":chatId/add-participant")
+  async addParticipant(
+    @Req() req: {user: JwtUser},
+    @Param("chatId") chatId: string,
+    @Body("userId") userId: string
+  ){
+    return this.chatService.addParticipant(chatId, req.user, userId);
+  }
+
+  @Post(":chatId/remove-participant")
+  async removeParticipant(
+    @Req() req: {user: JwtUser},
+    @Param("chatId") chatId: string,
+    @Body("userId") userId: string
+  ){
+    return this.chatService.removeParticipant(chatId, req.user, userId);
+  }
+
+  @Patch(":chatId/update-role")
+  async updateRole(
+    @Req() req: {user: JwtUser},
+    @Param("chatId") chatId: string,
+    @Body("userId") userId: string,
+    @Body() body: {userId: string, role: "admin" | "user"}
+  ){
+    return this.chatService.updateRole(chatId, req.user, userId, body.role);
+  }
+
+  @Delete(":chatId")
+  async deleteGroup(
+    @Req() req: {user: JwtUser},
+    @Param("chatId") chatId: string
+  ){
+    return this.chatService.deleteGroup(chatId, req.user);
   }
 }

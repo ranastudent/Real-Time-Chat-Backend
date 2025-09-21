@@ -110,7 +110,9 @@ export class ChatService {
       data: { title, createdBy: user.userId, isGroup },
     });
 
-    await this.joinRoom(chat.id, user);
+    await this.prisma.chatParticipant.create({
+      data: { chatId: chat.id, userId: user.userId, role: "admin" },
+    });
 
     return chat;
   }
@@ -125,7 +127,7 @@ export class ChatService {
 
     if (!existing) {
       return this.prisma.chatParticipant.create({
-        data: { chatId, userId: user.userId },
+        data: { chatId, userId: user.userId, role: "user" },
       });
     }
     return existing;
@@ -303,5 +305,61 @@ export class ChatService {
       orderBy: { createdAt: 'asc' },
       include: { sender: { select: { id: true, name: true } } },
     });
+  }
+
+  // --- ROLE CHECK ---
+  private async ensureAdmin(chatId : string, userId: string) {
+    const participant =  await this.prisma.chatParticipant.findFirst({
+      where: { chatId, userId },
+    });
+
+    if (!participant || participant.role !== 'admin')
+      throw new UnauthorizedException("Only admin can perform this action");
+  }
+
+  async addParticipant(chatId: string, admin: JwtUser, userIdToAdd: string) {
+    await this.validateDevice(admin);
+    await this.ensureAdmin(chatId, admin.userId);
+
+    const existing = await this.prisma.chatParticipant.findFirst({
+      where: { chatId, userId: userIdToAdd },
+    });
+
+    if (existing) throw new NotFoundException("user already is chat");
+
+    return this.prisma.chatParticipant.create({
+      data: { chatId, userId: userIdToAdd, role: 'user' },
+    });
+  }
+
+  async removeParticipant(chatId: string, admin: JwtUser, userIdToRemove: string){
+    await this.validateDevice(admin);
+    await this.ensureAdmin(chatId, admin.userId);
+
+    const participant = await this.prisma.chatParticipant.findFirst({
+      where: { chatId, userId: userIdToRemove },
+    });
+    if (!participant) throw new NotFoundException("Participant not found");
+
+    return this.prisma.chatParticipant.delete({
+      where: { id: participant.id },
+    });
+  }
+
+  async updateRole(chatId: string, admin: JwtUser, userId: string, role: "admin" | "user"){
+    await this.validateDevice(admin);
+    await this.ensureAdmin(chatId, admin.userId);
+
+    return this.prisma.chatParticipant.updateMany({
+      where: { chatId, userId },
+      data: { role },
+    })
+  }
+
+  async deleteGroup(chatId: string, admin: JwtUser) {
+    await this.validateDevice(admin);
+    await this.ensureAdmin(chatId, admin.userId);
+
+    return this.prisma.chat.delete({ where: { id: chatId } });
   }
 }

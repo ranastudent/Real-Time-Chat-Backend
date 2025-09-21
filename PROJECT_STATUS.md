@@ -126,8 +126,8 @@ Server logic:
 ## Future / Planned Features
 
 
-* Persistent typing status across sessions.
-* Group chat admin features (add/remove participants).
+  
+  
 * Push notifications for offline users.
 * Cloud storage for media files.
 * Advanced search and filtering of messages.
